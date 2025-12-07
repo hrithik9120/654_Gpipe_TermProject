@@ -41,10 +41,10 @@ def evaluate(model, dataloader):
     return acc, precision, recall, f1, cm
 
 
-def train_sequential(epochs=8, batch_size=128):
+def train_sequential(epochs=20, batch_size=128):
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
+        transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))
     ])
 
     trainset = datasets.CIFAR10(root="../data", train=True, download=True, transform=transform)
@@ -66,11 +66,13 @@ def train_sequential(epochs=8, batch_size=128):
     metrics = {
         "epochs": [],
         "train_loss": [],
+        "val_loss": [],
         "accuracy": [],
         "precision": [],
         "recall": [],
         "f1": [],
         "epoch_time": [],
+        "confusion_matrix": None,
     }
 
     os.makedirs("../results/metrics", exist_ok=True)
@@ -108,11 +110,14 @@ def train_sequential(epochs=8, batch_size=128):
 
         metrics["epochs"].append(epoch + 1)
         metrics["train_loss"].append(running_loss / len(trainloader))
+        # store "validation" loss as 1-accuracy proxy if exact loss isn't needed
+        metrics["val_loss"].append(1.0 - acc)
         metrics["accuracy"].append(acc)
         metrics["precision"].append(precision)
         metrics["recall"].append(recall)
         metrics["f1"].append(f1)
         metrics["epoch_time"].append(epoch_time)
+        metrics["confusion_matrix"] = cm.tolist()
 
         # Save checkpoint
         torch.save(model.state_dict(), f"../results/checkpoints/resnet20_epoch_{epoch+1}.pth")
@@ -130,11 +135,14 @@ def train_sequential(epochs=8, batch_size=128):
     metrics["total_training_time"] = total_time
 
     # Save metrics JSON
-    with open("../results/metrics/sequential_metrics.json", "w") as f:
+    metrics_path = "../results/metrics/sequential_metrics.json"
+    with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
+
+    # Generate plots for sequential run
     visualize_results.generate_all_plots(
-    "../results/metrics/sequential_train_metrics.json",
-    mode="sequential"
+        metrics_path,
+        mode="sequential"
     )
     print("\nSequential Training Complete")
     print("Total Training Time:", total_time)

@@ -1,47 +1,50 @@
-# pipeline/stage_worker.py
 import time
 import torch
 
-
-def stage_worker(stage_module, in_queue, out_queue, stage_id, training=False,
-                 event_queue=None):
-    """
-    Generic stage worker.
-    - Reads (mb_id, x) from in_queue
-    - Runs stage_module(x)
-    - Writes (mb_id, y, t0, t1, stage_id) to out_queue
-    - Optionally logs timing events to event_queue for Gantt chart
-    """
-    torch.set_num_threads(1)
-    stage_module.eval()  # we don't train inside the pipeline
-
-    print(f"[Stage {stage_id}] Worker started", flush=True)
+def stage_worker(stage_module, in_queue, out_queue, stage_id, is_training, event_queue):
+    print(f"[Stage {stage_id}] Worker started")
+    
+    # Use a reasonable timeout
+    TIMEOUT = 30.0
 
     while True:
-        item = in_queue.get()
-        if item is None:
-            # propagate shutdown to the next stage and exit
+        try:
+            item = in_queue.get(timeout=TIMEOUT)
+        except:
+            print(f"[Stage {stage_id}] In-queue timeout after {TIMEOUT} seconds, shutting down.")
             if out_queue is not None:
                 out_queue.put(None)
-            print(f"[Stage {stage_id}] Worker exiting.", flush=True)
             break
 
-        mb_id, x = item  # ALWAYS 2-tuple from main process
+        if item is None:
+            if out_queue is not None:
+                out_queue.put(None)
+            break
+
+        if len(item) == 2:
+            mb_id, x = item
+        elif len(item) == 5:
+            mb_id, x, _, _, _ = item
+        else:
+            print(f"[Stage {stage_id}] Unexpected item format: {item}")
+            continue
 
         t0 = time.time()
-        with torch.no_grad():
-            y = stage_module(x)
+
+        # Compute forward pass
+        with torch.set_grad_enabled(is_training):
+            out = stage_module(x)
+
         t1 = time.time()
 
-        # send downstream (consistent 5-tuple)
-        if out_queue is not None:
-            out_queue.put((mb_id, y, t0, t1, stage_id))
+        event_queue.put({
+            "stage": stage_id,
+            "mb_id": mb_id,
+            "start": t0,
+            "end": t1,
+            "queue_wait": 0.0
+        })
 
-        # log event for Gantt
-        if event_queue is not None:
-            event_queue.put({
-                "stage": int(stage_id),
-                "mb_id": int(mb_id),
-                "start": float(t0),
-                "end": float(t1),
-            })
+        if out_queue is not None:
+            # DETACH the output before sending through queue
+            out_queue.put((mb_id, out.detach(), t0, t1, stage_id))

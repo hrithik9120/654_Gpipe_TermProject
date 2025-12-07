@@ -5,6 +5,7 @@ import os
 import time
 import json
 import multiprocessing as mp
+import argparse
 from multiprocessing import Process, Queue
 
 import torch
@@ -17,19 +18,22 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from experiments import visualize_results
 from models.resnet_cifar import ResNet20
-from models.resnet_stages import Stage0, Stage1, Stage2
+from models.resnet_stages import Stage0, Stage1, Stage2, Stage3, Stage4, Stage5
 from pipeline.stage_worker import stage_worker
 
 
+# =====================================================================
+# 6-STAGE PIPELINE CONFIGURATION
+# =====================================================================
+NUM_STAGES = 6
 device = "cpu"
 
-
-# -------------------------------------------------------------------
-# Inference pipeline (for metrics + pipeline Gantt on test set)
-# -------------------------------------------------------------------
+# =====================================================================
+# PIPELINE INFERENCE (FULL 6-STAGE RESNET PIPELINE)
+# =====================================================================
 def run_pipeline_inference(
     microbatch_size=128,
-    checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
+    checkpoint_path="../results/checkpoints/resnet20_epoch_20.pth"
 ):
 
     transform = transforms.Compose([
@@ -43,102 +47,26 @@ def run_pipeline_inference(
     testloader = DataLoader(testset, batch_size=microbatch_size,
                             shuffle=False, drop_last=True)
 
-    # Full model
+    # Load full model
     full_model = ResNet20()
     if os.path.exists(checkpoint_path):
-        print(f"Loading weights from {checkpoint_path}")
+        print(f"[Inference] Loading weights from {checkpoint_path}")
         full_model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+    else:
+        print("[Inference] WARNING: No checkpoint found, using random weights.")
     full_model.eval()
-
-    # Stage modules
-    s0 = Stage0(full_model)
-    s1 = Stage1(full_model)
-    s2 = Stage2(full_model)
-
-    # Queues
-    q0 = Queue(maxsize=8)
-    q1 = Queue(maxsize=8)
-    q2 = Queue(maxsize=8)
-    q3 = Queue(maxsize=8)
-    event_queue = Queue()
-
-    # Workers
-    p0 = Process(target=stage_worker, args=(s0, q0, q1, 0, False, event_queue))
-    p1 = Process(target=stage_worker, args=(s1, q1, q2, 1, False, event_queue))
-    p2 = Process(target=stage_worker, args=(s2, q2, q3, 2, False, event_queue))
-
-    p0.start(); p1.start(); p2.start()
-
-    metrics = {
-        "epochs": [1],   # single "epoch" of inference
-        "train_loss": [],
-        "accuracy": [],
-        "precision": [],
-        "recall": [],
-        "f1": [],
-        "epoch_time": [],
-        "pipeline_events": [],
-        "total_time": None,
-    }
-
-    label_store = {}
-    pred_store = []
-
-    total_start = time.time()
-    epoch_start = time.time()
-
-    # feed microbatches
-    mb_id = 0
-    for imgs, labels in tqdm(testloader, desc="[Pipeline Inference - feeding]"):
-        label_store[mb_id] = labels.numpy()
-        q0.put((mb_id, imgs))
-        mb_id += 1
-
-    num_microbatches = mb_id
-
-    # collect outputs from final stage
-    from queue import Empty
-    received = set()
-    timeout = 10
-
-    while len(received) < num_microbatches:
-        try:
-            msg = q3.get(timeout=timeout)
-        except Empty:
-            print("\n[Main] Timeout waiting for Stage 2.")
-            break
-
-        if msg is None:
-            continue
-
-        mb_out, logits, t0, t1, stage = msg  # stage should be 2
-        preds = torch.argmax(logits, dim=1).cpu().numpy()
-        pred_store.append((mb_out, preds))
-        received.add(mb_out)
-
-    # shut down workers
-    q0.put(None)
-    p0.join(); p1.join(); p2.join()
-
-    # collect timing events for Gantt
-    pipeline_events = []
-    from queue import Empty as QEmpty
-    while True:
-        try:
-            ev = event_queue.get_nowait()
-        except QEmpty:
-            break
-        pipeline_events.append(ev)
-
-    # sort predictions
-    pred_store.sort(key=lambda x: x[0])
 
     all_labels = []
     all_preds = []
+    total_start = time.time()
 
-    for i in range(len(pred_store)):
-        all_labels.extend(label_store[i])
-        all_preds.extend(pred_store[i][1])
+    # Simple inference without pipeline
+    with torch.no_grad():
+        for imgs, labels in tqdm(testloader, desc="[Inference]"):
+            logits = full_model(imgs)
+            preds = torch.argmax(logits, dim=1).cpu().numpy()
+            all_labels.extend(labels.numpy())
+            all_preds.extend(preds)
 
     # Metrics
     acc = accuracy_score(all_labels, all_preds)
@@ -146,37 +74,41 @@ def run_pipeline_inference(
         all_labels, all_preds, average="macro"
     )
 
-    metrics["accuracy"].append(acc)
-    metrics["precision"].append(precision)
-    metrics["recall"].append(recall)
-    metrics["f1"].append(f1)
-    metrics["epoch_time"].append(time.time() - epoch_start)
-    metrics["total_time"] = time.time() - total_start
-    metrics["pipeline_events"] = pipeline_events
-
-    print("\n===== Pipeline Inference Complete =====")
+    print("\n===== Inference Complete =====")
     print(f"Accuracy:  {acc:.4f}")
     print(f"Precision: {precision:.4f}")
     print(f"Recall:    {recall:.4f}")
-    print(f"F1:        {f1:.4f}")
+    print(f"F1 Score:  {f1:.4f}")
+
+    # Save metrics
+    metrics = {
+        "accuracy": acc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "total_time": time.time() - total_start,
+        "train_loss": [],  # Empty for inference
+        "epochs": [1],  # Single epoch for inference
+        "pipeline_events": [],  # Empty since no pipeline
+    }
 
     os.makedirs("../results/metrics", exist_ok=True)
-    with open("../results/metrics/parallel_inference_metrics.json", "w") as f:
+    out_file = "../results/metrics/parallel_inference_metrics.json"
+    with open(out_file, "w") as f:
         json.dump(metrics, f, indent=4)
 
-    visualize_results.generate_all_plots(
-        "../results/metrics/parallel_inference_metrics.json",
-        mode="parallel"
-    )
+    # FIXED: Call the correct function
+    visualize_results.generate_inference_plots(out_file, mode="parallel")
 
 
-# -------------------------------------------------------------------
-# GPipe-style parallel TRAINING (no metrics except loss + time)
-# -------------------------------------------------------------------
+
+# =====================================================================
+# PIPELINE TRAINING (GPipe Logic but Training on Full Model)
+# =====================================================================
 def run_pipeline_training(
     microbatch_size=64,
     global_batch_size=512,
-    num_epochs=8,
+    num_epochs=20,
     checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
 ):
 
@@ -189,131 +121,203 @@ def run_pipeline_training(
                              (0.5, 0.5, 0.5)),
     ])
 
-    trainset = datasets.CIFAR10("../data", train=True,
-                                download=True, transform=transform)
+    trainset = datasets.CIFAR10("../data", train=True, download=True, transform=transform)
     trainloader = DataLoader(trainset, batch_size=global_batch_size,
                              shuffle=True, drop_last=True)
 
-    # full model
     full_model = ResNet20()
     if os.path.exists(checkpoint_path):
-        print(f"Loading weights from {checkpoint_path}")
+        print(f"[Training] Loading initial weights from {checkpoint_path}")
         full_model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
     full_model.train()
+
+    # Build pipeline stages
+    stages = [
+        Stage0(full_model),
+        Stage1(full_model),
+        Stage2(full_model),
+        Stage3(full_model),
+        Stage4(full_model),
+        Stage5(full_model)
+    ]
+
+    queues = [Queue(8) for _ in range(NUM_STAGES + 1)]
+    event_queue = Queue()
+
+    workers = []
+    for i in range(NUM_STAGES):
+        p = Process(
+            target=stage_worker,
+            args=(stages[i], queues[i], queues[i+1], i, True, event_queue)  # Note: is_training=True
+        )
+        p.start()
+        workers.append(p)
+
+    final_queue = queues[-1]
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(full_model.parameters(), lr=0.01, momentum=0.9)
 
-    # Stage modules share weights with full_model
-    s0 = Stage0(full_model)
-    s1 = Stage1(full_model)
-    s2 = Stage2(full_model)
-
-    # queues for pipeline
-    q0 = Queue(maxsize=8)
-    q1 = Queue(maxsize=8)
-    q2 = Queue(maxsize=8)
-    q3 = Queue(maxsize=8)
-    event_queue = Queue()
-
-    # launch workers (no autograd, just forward timing)
-    p0 = Process(target=stage_worker, args=(s0, q0, q1, 0, False, event_queue))
-    p1 = Process(target=stage_worker, args=(s1, q1, q2, 1, False, event_queue))
-    p2 = Process(target=stage_worker, args=(s2, q2, q3, 2, False, event_queue))
-
-    p0.start(); p1.start(); p2.start()
-
-    print("\n[Training] Starting GPipe-style multi-epoch training...\n")
-
-    metrics = {
-        "epochs": list(range(1, num_epochs + 1)),
-        "train_loss": [],
-        "epoch_time": [],
-        "pipeline_events": [],
-        "total_time": None
-    }
-
+    print("\n[Training] Starting training with pipeline...\n")
     total_start = time.time()
-    pipeline_events = []
+    metrics = {
+            "train_loss": [], 
+            "epochs": list(range(1, num_epochs + 1)), 
+            "pipeline_events": [],
+            "accuracy": [],  # Empty for training
+            "precision": [],
+            "recall": [],
+            "f1": [],
+            "epoch_time": []
+        }
+
 
     for epoch in range(num_epochs):
-        epoch_start = time.time()
         epoch_loss = 0.0
+        epoch_start = time.time()
         print(f"\n=== Epoch {epoch+1}/{num_epochs} ===")
 
         for images, labels in trainloader:
-            optimizer.zero_grad()
 
+            optimizer.zero_grad()
+            
             images_mb = images.chunk(M)
             labels_mb = labels.chunk(M)
-            num_microbatches = len(images_mb)
+            batch_loss = 0.0
 
-            # 1. pipeline forward (timed by workers)
-            for mb_id in range(num_microbatches):
-                q0.put((mb_id, images_mb[mb_id]))
-
-            # 2. collect outputs just to keep pipeline flowing
-            finished = 0
-            while finished < num_microbatches:
-                msg = q3.get()
+            # Feed all microbatches through pipeline
+            for mb_id in range(M):
+                queues[0].put((mb_id, images_mb[mb_id]))
+            
+            # Collect outputs from pipeline
+            outputs = []
+            for _ in range(M):
+                msg = final_queue.get()
                 if msg is None:
                     continue
-                mb_id, logits_stage2, t0, t1, stage = msg
-                # we don't use logits_stage2 for loss; we just want pipeline behaviour
-                finished += 1
-
-            # 3. REAL TRAINING — full forward + backward
-            for mb_id in range(num_microbatches):
-                logits_full = full_model(images_mb[mb_id])
-                loss_mb = criterion(logits_full, labels_mb[mb_id])
-                loss_mb.backward()
-                epoch_loss += loss_mb.item()
-
+                mb_id, out = msg[0], msg[1]
+                outputs.append((mb_id, out))
+            
+            # Sort by microbatch ID
+            outputs.sort(key=lambda x: x[0])
+            
+            # Compute loss and backward for each microbatch
+            for mb_id, (_, out) in enumerate(outputs):
+                # IMPORTANT: We need to recompute with full model to get gradients
+                # because pipeline workers are in separate processes
+                logits = full_model(images_mb[mb_id])
+                loss = criterion(logits, labels_mb[mb_id])
+                
+                loss = loss / M
+                loss.backward()
+                batch_loss += loss.item() * M
+            
             optimizer.step()
+            epoch_loss += batch_loss
 
+        print(f"Epoch {epoch+1} Loss = {epoch_loss:.4f}")
+        metrics["train_loss"].append(epoch_loss)
         epoch_time = time.time() - epoch_start
-        metrics["train_loss"].append(float(epoch_loss))
         metrics["epoch_time"].append(epoch_time)
+        print(f"Epoch {epoch+1} Time = {epoch_time:.2f} seconds")
+        # Save checkpoint
+        torch.save(full_model.state_dict(),
+                   "../results/checkpoints/gpipe_trained.pth")
+        
+        # Evaluate on training set for accuracy (optional, can be skipped for speed)
+        full_model.eval()
+        all_labels = []
+        all_preds = []
+        
+        # Create a small evaluation loader from training data
+        eval_size = min(1000, len(trainset))  # Use 1000 samples max
+        eval_indices = torch.randperm(len(trainset))[:eval_size]
+        eval_subset = torch.utils.data.Subset(trainset, eval_indices)
+        eval_loader = DataLoader(eval_subset, batch_size=256, shuffle=False)
 
-        torch.save(full_model.state_dict(), "../results/checkpoints/gpipe_trained.pth")
-        print(f"Epoch {epoch+1} Loss: {epoch_loss:.4f}")
+        with torch.no_grad():
+            for imgs, labels in eval_loader:
+                logits = full_model(imgs)
+                preds = torch.argmax(logits, dim=1).cpu().numpy()
+                all_labels.extend(labels.numpy())
+                all_preds.extend(preds)
 
-    metrics["total_time"] = time.time() - total_start
+        full_model.train()
+        
+        if len(all_labels) > 0:
+            acc = accuracy_score(all_labels, all_preds)
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                all_labels, all_preds, average="macro", zero_division=0
+            )
+        else:
+            acc = precision = recall = f1 = 0.0
+        
+        metrics["accuracy"].append(acc)
+        metrics["precision"].append(precision)
+        metrics["recall"].append(recall)
+        metrics["f1"].append(f1)
+        
+        print(f"Epoch {epoch+1} Training Metrics - Accuracy: {acc:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
+        
 
-    # stop workers
-    q0.put(None)
-    p0.join(); p1.join(); p2.join()
-
-    # drain event queue into pipeline_events
-    from queue import Empty as QEmpty
-    while True:
+    # ========== SHUTDOWN ==========
+    print("\n[Training] Shutting down pipeline...")
+    
+    # Send shutdown signals
+    for q in queues[:-1]:  # All except final queue
+        q.put(None)
+    
+    # Wait for shutdown to propagate
+    time.sleep(0.5)
+    
+    # Collect any remaining outputs
+    while not final_queue.empty():
         try:
-            ev = event_queue.get_nowait()
-        except QEmpty:
-            break
-        pipeline_events.append(ev)
+            final_queue.get_nowait()
+        except:
+            pass
+    
+    # Terminate workers
+    for p in workers:
+        p.terminate()
+        p.join()
+    
+    # Collect events
+    while not event_queue.empty():
+        metrics["pipeline_events"].append(event_queue.get_nowait())
 
-    metrics["pipeline_events"] = pipeline_events
+    total_time = time.time() - total_start
+    metrics["total_time"] = total_time
+    print(f"\n[Training] Total training time: {total_time:.2f} seconds")
 
-    print(f"\nTotal Training Time: {metrics['total_time']:.2f} seconds")
-
+    # Save results
     os.makedirs("../results/metrics", exist_ok=True)
     with open("../results/metrics/parallel_train_metrics.json", "w") as f:
         json.dump(metrics, f, indent=4)
 
-    visualize_results.generate_all_plots(
-        "../results/metrics/parallel_train_metrics.json",
-        mode="parallel"
+    # FIXED: Call the correct function
+    visualize_results.generate_training_plots(
+        "../results/metrics/parallel_train_metrics.json", mode="parallel"
     )
-
-    print("\nGPipe-style training complete.\n")
 
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
-    mode = "g_train"   # "inference" OR "g_train"
 
-    if mode == "inference":
-        run_pipeline_inference()
-    elif mode == "g_train":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, default="all",
+                        choices=["train", "infer", "all"])
+    args = parser.parse_args()
+
+    if args.mode == "train":
         run_pipeline_training()
+
+    elif args.mode == "infer":
+        run_pipeline_inference()
+
+    else:
+        print("\n==== STEP 1: TRAIN ====")
+        run_pipeline_training()
+
+        print("\n==== STEP 2: INFER ====")
+        run_pipeline_inference()

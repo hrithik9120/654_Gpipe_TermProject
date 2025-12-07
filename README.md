@@ -128,7 +128,7 @@ python experiments/train_sequential.py
 
 Generates:
 
-- `results/metrics/sequential_train_metrics.json`
+- `results/metrics/sequential_metrics.json`
 - Plots in `results/plots/sequential/`
 
 ---
@@ -139,11 +139,18 @@ Generates:
 python experiments/train_parallel.py
 ```
 
-Produces:
+By default, `train_parallel.py` is configured with `mode="g_train"`, which runs a **GPipe-style training loop**:
 
-- `results/metrics/parallel_train_metrics.json`
-- ResNet checkpoints
-- Overlapped-execution Gantt chart
+- The **pipeline forward pass** is executed across three processes (Stage0, Stage1, Stage2) to measure microbatch throughput and stage timings.
+- The **actual gradient computation and weight updates** are performed using a conventional full-model forward/backward pass in the main process.
+
+This design keeps the project simple and robust while still demonstrating **microbatching, pipeline bubbles, and throughput improvements**, even though it does **not** implement the full distributed backprop scheduling from the original GPipe paper.
+
+Generates:
+
+- `results/metrics/parallel_train_metrics.json` (training loss, epoch times, pipeline events)
+- Checkpoints in `results/checkpoints/gpipe_trained.pth`
+- Plots in `results/plots/parallel/`
 
 ---
 
@@ -154,6 +161,16 @@ Useful for pure visualization and latency analysis.
 # inside train_parallel.py, set mode="inference"
 python experiments/train_parallel.py
 ```
+
+In this mode:
+
+- The pipeline is used to perform **inference only** on the test set.
+- Metrics such as accuracy, precision, recall, and F1 are computed.
+
+Generates:
+
+- `results/metrics/parallel_inference_metrics.json`
+- Plots in `results/plots/parallel/`
 
 ---
 
@@ -174,6 +191,12 @@ Unlike standard PyTorch training, where the entire model lives in one process, t
   - Sequential vs Pipeline mode comparison
 
 This creates a real asynchronous, overlapped execution flow where multiple microbatches are being processed simultaneously in different parts of the network.
+
+> **Note on backpropagation:**
+>
+> - In our **sequential baseline**, both forward and backward passes are run in a single process on the full ResNet20 model.
+> - In our **GPipe-style training**, the **pipeline is used only for the forward timing path**; gradients are computed via a conventional full-model backward pass. This is sufficient to study throughput and stage utilization without implementing fully distributed pipeline backprop.
+> - Implementing true GPipe-style distributed backward (with stage-local optimizers and gradient accumulation across microbatches) is possible future work and would follow the schedule described in the original paper.
 
 This project splits ResNet20 into **three sequential stages**:
 

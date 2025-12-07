@@ -1,5 +1,3 @@
-# experiments/visualize_results.py
-
 import json
 import os
 import pandas as pd
@@ -17,26 +15,23 @@ def load_metrics(file_path):
     with open(file_path, "r") as f:
         metrics = json.load(f)
 
+    # Get train_loss and ensure epochs array matches its length
+    train_loss = metrics.get("train_loss", [])
     epochs = metrics.get("epochs", [])
-    n = len(epochs)
-
-    def pad(key):
-        vals = metrics.get(key)
-        if vals is None:
-            return [float("nan")] * n
-        vals = list(vals)
-        if len(vals) < n:
-            vals += [float("nan")] * (n - len(vals))
-        return vals
-
+    
+    # If epochs not provided or wrong length, create it
+    if len(epochs) != len(train_loss):
+        epochs = list(range(1, len(train_loss) + 1))
+    
+    # Create DataFrame with consistent lengths
     df = pd.DataFrame({
         "epoch": epochs,
-        "loss": pad("train_loss") or pad("loss"),
-        "accuracy": pad("accuracy"),
-        "precision": pad("precision"),
-        "recall": pad("recall"),
-        "f1": pad("f1"),
-        "epoch_time": pad("epoch_time")
+        "loss": train_loss,
+        "accuracy": metrics.get("accuracy", [float("nan")] * len(epochs)),
+        "precision": metrics.get("precision", [float("nan")] * len(epochs)),
+        "recall": metrics.get("recall", [float("nan")] * len(epochs)),
+        "f1": metrics.get("f1", [float("nan")] * len(epochs)),
+        "epoch_time": metrics.get("epoch_time", [float("nan")] * len(epochs))
     })
 
     return df, metrics
@@ -46,6 +41,11 @@ def load_metrics(file_path):
 # Metric plot
 # -----------------------------------------------------------
 def plot_metric(df, metric, ylabel, filename, out_dir):
+    # Check if we have valid data for this metric
+    if metric not in df.columns or df[metric].isna().all():
+        print(f"⚠️ No data for {metric}, skipping plot")
+        return
+    
     plt.figure(figsize=(10, 6))
     sns.lineplot(data=df, x="epoch", y=metric, marker="o")
     plt.title(f"{ylabel} Over Epochs")
@@ -84,6 +84,24 @@ def plot_confusion_matrix(cm, out_dir, filename="confusion_matrix"):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
+# -----------------------------------------------------------
+# Butterfly plot for load imbalance visualization
+# -----------------------------------------------------------
+def plot_butterfly(events, out_dir):
+    if not events:
+        return
+    
+    df = pd.DataFrame(events)
+    df["duration"] = df["end"] - df["start"]
+    df["start_rel"] = df["start"] - df["start"].min()
+
+    plt.figure(figsize=(12,6))
+    plt.scatter(df["start_rel"], df["stage"], s=df["duration"]*500, alpha=0.5)
+    plt.xlabel("Time (relative)")
+    plt.ylabel("Stage")
+    plt.title("Pipeline Butterfly Plot (Load Imbalance Visualization)")
+    plt.savefig(os.path.join(out_dir, "butterfly_plot.png"))
+    plt.close()
 
 # -----------------------------------------------------------
 # Proper pipeline Gantt chart
@@ -103,9 +121,10 @@ def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     df["duration"] = df["end"] - df["start"]
     df["start_rel"] = df["start"] - df["start"].min()
 
+    # ---- GANTT CHART ----
     plt.figure(figsize=(12, 6))
-
     stages = sorted(df["stage"].unique())
+
     for stage in stages:
         group = df[df["stage"] == stage]
         plt.barh(
@@ -122,27 +141,151 @@ def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
+    # ---- AVERAGE LATENCY BAR ----
+    plt.figure(figsize=(8,5))
+    sns.barplot(x="stage", y="duration", data=df)
+    plt.xlabel("Stage ID")
+    plt.ylabel("Avg Duration (s)")
+    plt.title("Average Stage Latency")
+    plt.savefig(os.path.join(out_dir, "stage_latency.png"))
+    plt.close()
 
+def plot_training_metrics_grid(df, out_dir):
+    """Create a 2x3 grid of all training metrics"""
+    metrics_to_plot = ["loss", "accuracy", "precision", "recall", "f1", "epoch_time"]
+    titles = ["Training Loss", "Accuracy", "Precision", "Recall", "F1 Score", "Epoch Time (s)"]
+    
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+    
+    for idx, (metric, title) in enumerate(zip(metrics_to_plot, titles)):
+        ax = axes[idx]
+        if metric in df.columns and not df[metric].isna().all():
+            ax.plot(df["epoch"], df[metric], marker='o', linewidth=2, markersize=6)
+            ax.set_title(title)
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel(title.split(" ")[-1])
+            ax.grid(True, alpha=0.3)
+            
+            # Add value labels on last point
+            if len(df[metric]) > 0 and not pd.isna(df[metric].iloc[-1]):
+                last_val = df[metric].iloc[-1]
+                ax.annotate(f'{last_val:.4f}', 
+                           xy=(df["epoch"].iloc[-1], last_val),
+                           xytext=(10, 0), textcoords='offset points',
+                           fontsize=9, color='red')
+        else:
+            ax.text(0.5, 0.5, f'No {metric} data', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title(title)
+    
+    plt.suptitle("Training Metrics Over Epochs", fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "training_metrics_grid.png"), dpi=300)
+    plt.close()
 # -----------------------------------------------------------
-# MAIN entrypoint
+# Training plots
 # -----------------------------------------------------------
-def generate_all_plots(file_path, mode):
-    """
-    mode: "sequential" or "parallel"
-    """
+def generate_training_plots(file_path, mode):
+    """Generate plots for training metrics"""
+    print(f"\n[Visualization] Generating training plots from {file_path}")
+    
+    df, metrics = load_metrics(file_path)
     out_dir = os.path.join("../results/plots", mode)
     os.makedirs(out_dir, exist_ok=True)
-
-    df, metrics = load_metrics(file_path)
-
-    # core metrics
+    
+    # 1. Individual metric plots
     plot_metric(df, "loss", "Training Loss", "loss_over_epochs", out_dir)
     plot_metric(df, "accuracy", "Accuracy", "accuracy_over_epochs", out_dir)
     plot_metric(df, "precision", "Precision", "precision_over_epochs", out_dir)
     plot_metric(df, "recall", "Recall", "recall_over_epochs", out_dir)
     plot_metric(df, "f1", "F1 Score", "f1_over_epochs", out_dir)
     plot_metric(df, "epoch_time", "Epoch Time", "epoch_time_over_epochs", out_dir)
-
-    # time + Gantt
+    
+    # 2. Combined grid plot
+    plot_training_metrics_grid(df, out_dir)
+    
+    # 3. Total time plot
     plot_total_time(metrics, out_dir)
-    plot_pipeline_gantt(metrics.get("pipeline_events", []), out_dir)
+    
+    # 4. Pipeline plots if available
+    if mode == "parallel":
+        events = metrics.get("pipeline_events", [])
+        if events and len(events) > 0:
+            print(f"[Visualization] Found {len(events)} pipeline events")
+            plot_pipeline_gantt(events, out_dir)
+            plot_butterfly(events, out_dir)
+        else:
+            print("[Visualization] No pipeline events found")
+    
+    print(f"[Visualization] Saved training plots to {out_dir}")
+
+# -----------------------------------------------------------
+# Inference plots
+# -----------------------------------------------------------
+def generate_inference_plots(file_path, mode):
+    """Generate plots for inference metrics"""
+    print(f"\n[Visualization] Generating inference plots from {file_path}")
+    
+    with open(file_path, "r") as f:
+        metrics = json.load(f)
+    
+    out_dir = os.path.join("../results/plots", mode)
+    os.makedirs(out_dir, exist_ok=True)
+    
+    # Inference-specific plots (bar charts for single values)
+    metrics_to_plot = ["accuracy", "precision", "recall", "f1"]
+    
+    plt.figure(figsize=(12, 8))
+    
+    # Create subplots
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes = axes.flatten()
+    
+    for idx, metric in enumerate(metrics_to_plot):
+        if metric in metrics:
+            ax = axes[idx]
+            value = metrics[metric]
+            ax.bar([metric.capitalize()], [value], color='skyblue', edgecolor='black')
+            ax.set_title(f"{metric.capitalize()}: {value:.4f}")
+            ax.set_ylabel("Score")
+            ax.set_ylim(0, 1)
+            ax.grid(True, alpha=0.3)
+    
+    plt.suptitle(f"Inference Metrics (Total Time: {metrics.get('total_time', 0):.2f}s)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "inference_metrics.png"), dpi=300)
+    plt.close()
+    
+    # Also create individual bar charts
+    for metric in metrics_to_plot:
+        if metric in metrics:
+            plt.figure(figsize=(8, 6))
+            plt.bar([metric.capitalize()], [metrics[metric]], color='lightcoral', width=0.6)
+            plt.title(f"{metric.capitalize()}: {metrics[metric]:.4f}")
+            plt.ylabel("Score")
+            plt.ylim(0, 1)
+            plt.grid(True, alpha=0.3)
+            plt.savefig(os.path.join(out_dir, f"{metric}_bar.png"), dpi=300)
+            plt.close()
+    
+    print(f"[Visualization] Saved inference plots to {out_dir}")
+
+
+# -----------------------------------------------------------
+# MAIN entrypoint for backward compatibility
+# -----------------------------------------------------------
+def generate_all_plots(file_path, mode):
+    """Legacy function for backward compatibility"""
+    print(f"\n[Visualization] Legacy generate_all_plots called for {file_path}")
+    
+    # Check if this is training or inference file
+    with open(file_path, "r") as f:
+        metrics = json.load(f)
+    
+    if "train_loss" in metrics and len(metrics["train_loss"]) > 0:
+        generate_training_plots(file_path, mode)
+    elif "accuracy" in metrics:
+        generate_inference_plots(file_path, mode)
+    else:
+        print(f"[Visualization] Could not determine file type for {file_path}")
