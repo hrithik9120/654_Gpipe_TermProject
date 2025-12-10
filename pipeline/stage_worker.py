@@ -47,5 +47,5 @@ def stage_worker(stage_module, in_queue, out_queue, stage_id, is_training, event
         })
 
         if out_queue is not None:
-            # DETACH the output before sending through queue
+            # Detach the output before sending through queue
             out_queue.put((mb_id, out.detach(), t0, t1, stage_id))

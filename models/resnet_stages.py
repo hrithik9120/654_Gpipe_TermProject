@@ -1,9 +1,6 @@
-# models/resnet_stages.py
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .resnet_cifar import ResNet20
 
 class Stage0(nn.Module):
     def __init__(self, full):
