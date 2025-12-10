@@ -90,8 +90,6 @@ def run_pipeline_inference(
     with open(out_file, "w") as f:
         json.dump(metrics, f, indent=4)
 
-    visualize_results.generate_inference_plots(out_file, mode="parallel")
-
 
 def run_pipeline_training(
     microbatch_size=32,

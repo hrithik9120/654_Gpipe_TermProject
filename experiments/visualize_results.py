@@ -215,54 +215,6 @@ def generate_training_plots(file_path, mode):
     print(f"Saved training plots to {out_dir}")
 
 
-def generate_inference_plots(file_path, mode):
-    """
-    Generates plots for all inference metrics.
-    """
-    print(f"\nGenerating inference plots from {file_path}")
-    
-    with open(file_path, "r") as f:
-        metrics = json.load(f)
-    
-    out_dir = os.path.join("../results/plots", mode)
-    os.makedirs(out_dir, exist_ok=True)
-    
-    metrics_to_plot = ["accuracy", "precision", "recall", "f1"]
-
-    plt.figure(figsize=(12, 8))
-    
-    _, axes = plt.subplots(2, 2, figsize=(14, 10))
-    axes = axes.flatten()
-    
-    for i, metric in enumerate(metrics_to_plot):
-        if metric in metrics:
-            ax = axes[i]
-            value = metrics[metric]
-            ax.bar([metric.capitalize()], [value], color='skyblue', edgecolor='black')
-            ax.set_title(f"{metric.capitalize()}: {value:.4f}")
-            ax.set_ylabel("Score")
-            ax.set_ylim(0, 1)
-            ax.grid(True, alpha=0.3)
-    
-    plt.suptitle(f"Inference Metrics (Total Time: {metrics.get('total_time', 0):.2f}s)")
-    plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, "inference_metrics.png"), dpi=300)
-    plt.close()
-    
-    for metric in metrics_to_plot:
-        if metric in metrics:
-            plt.figure(figsize=(8, 6))
-            plt.bar([metric.capitalize()], [metrics[metric]], color='lightcoral', width=0.6)
-            plt.title(f"{metric.capitalize()}: {metrics[metric]:.4f}")
-            plt.ylabel("Score")
-            plt.ylim(0, 1)
-            plt.grid(True, alpha=0.3)
-            plt.savefig(os.path.join(out_dir, f"{metric}_bar.png"), dpi=300)
-            plt.close()
-    
-    print(f"Saved inference plots to {out_dir}")
-
-
 def generate_all_plots(file_path, mode):
     """
     Main entry point for generating all plots.
@@ -274,7 +226,5 @@ def generate_all_plots(file_path, mode):
     
     if "train_loss"in metrics and len(metrics["train_loss"]) > 0:
         generate_training_plots(file_path, mode)
-    elif "accuracy"in metrics:
-        generate_inference_plots(file_path, mode)
     else:
         print(f"Could not load file: {file_path}")
