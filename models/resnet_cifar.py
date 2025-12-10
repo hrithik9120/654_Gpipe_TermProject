@@ -5,6 +5,9 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
+        """
+        BasicBlock constructor.
+        """
         super(BasicBlock, self).__init__()
 
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride,
@@ -23,6 +26,9 @@ class BasicBlock(nn.Module):
             )
 
     def forward(self, x):
+        """
+        Forward pass.
+        """
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
@@ -32,6 +38,9 @@ class BasicBlock(nn.Module):
 
 class ResNet20(nn.Module):
     def __init__(self, num_classes=10):
+        """
+        ResNet20 constructor.
+        """
         super(ResNet20, self).__init__()
 
         self.in_planes = 16
@@ -47,6 +56,9 @@ class ResNet20(nn.Module):
         self.linear = nn.Linear(64, num_classes)
 
     def _make_layer(self, planes, blocks, stride):
+        """
+        Constructs layers of ResNet.
+        """
         strides = [stride] + [1] * (blocks - 1)
         layers = []
 
@@ -57,6 +69,9 @@ class ResNet20(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        """
+        Forward pass.
+        """
         out = F.relu(self.bn1(self.conv1(x)))
 
         out = self.layer1(out)

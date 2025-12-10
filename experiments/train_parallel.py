@@ -28,6 +28,10 @@ def run_pipeline_inference(
     microbatch_size=128,
     checkpoint_path="../results/checkpoints/resnet20_epoch_20.pth"
 ):
+    """
+    Loads the CIFAR10 dataset and performs inferences using ResNet20 without gradients. Computes accuracy, precision,
+    recall and F1 score and saves them to a json.
+    """
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -97,6 +101,10 @@ def run_pipeline_training(
     num_epochs=20,
     checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
 ):
+    """
+    Parallel training of ResNet20 on CIFAR10 dataset, split into 6 stages. Trains over 20 epochs by default.
+    Parallelized over worker threads. Computes accuracy, precision, recall and F1 score and saves them to a json.
+    """
 
     assert global_batch_size % microbatch_size == 0
     M = global_batch_size // microbatch_size  
