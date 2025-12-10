@@ -107,8 +107,15 @@ def compare_sequential_parallel(
     """
     Compare total training times of sequential vs parallel training
     """
-    seq_time = json.load_total(sequential_json).get("total_training_time")
-    par_time = json.load_total(parallel_json).get("total_training_time")
+    # Load sequential metrics
+    with open(sequential_json, "r") as f:
+        seq_data = json.load(f)
+    seq_time = seq_data.get("total_training_time") or seq_data.get("total_time")
+
+    # Load parallel metrics
+    with open(parallel_json, "r") as f:
+        par_data = json.load(f)
+    par_time = par_data.get("total_training_time") or par_data.get("total_time")
 
     labels = ["Sequential", "Pipeline Parallel"]
     values = [seq_time, par_time]
@@ -116,7 +123,6 @@ def compare_sequential_parallel(
     plt.figure(figsize=(10, 6))
     ax = sns.barplot(x=labels, y=values, palette="viridis")
 
-    # Annotate bars with values
     for i, v in enumerate(values):
         ax.text(i, v * 1.01, f"{v:.2f} s", ha='center', va='bottom', fontsize=12)
 
@@ -130,7 +136,6 @@ def compare_sequential_parallel(
     plt.show()
 
     print(f"Comparison plot saved to: {save_path}")
-
 
 def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     """
@@ -197,7 +202,7 @@ def plot_training_metrics_grid(df, out_dir):
             ax.plot(df["epoch"], df[metric], marker='o', linewidth=2, markersize=6)
             ax.set_title(title)
             ax.set_xlabel("Epoch")
-            ax.set_ylabel(title.split("")[-1])
+            ax.set_ylabel(title)
             ax.grid(True, alpha=0.3)
             
             if len(df[metric]) > 0 and not pd.isna(df[metric].iloc[-1]):
