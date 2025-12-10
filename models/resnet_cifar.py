@@ -19,7 +19,7 @@ class BasicBlock(nn.Module):
         if stride != 1 or in_planes != planes:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False),
-                nn.GroupNorm(4, planes)   # <- IMPORTANT
+                nn.GroupNorm(4, planes)
             )
 
     def forward(self, x):
@@ -39,7 +39,7 @@ class ResNet20(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.GroupNorm(4, 16)
 
-        # 3 layers, each with 3 BasicBlocks
+        # 3 layers
         self.layer1 = self._make_layer(16, 3, stride=1)
         self.layer2 = self._make_layer(32, 3, stride=2)
         self.layer3 = self._make_layer(64, 3, stride=2)
