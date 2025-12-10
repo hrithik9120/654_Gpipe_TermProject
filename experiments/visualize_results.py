@@ -7,11 +7,10 @@ import numpy as np
 
 sns.set(style="whitegrid")
 
-
-# -----------------------------------------------------------
-# Load metrics
-# -----------------------------------------------------------
 def load_metrics(file_path):
+    """
+    Load metrics from JSON file into DataFrame
+    """
     with open(file_path, "r") as f:
         metrics = json.load(f)
 
@@ -36,14 +35,13 @@ def load_metrics(file_path):
 
     return df, metrics
 
-
-# -----------------------------------------------------------
-# Metric plot
-# -----------------------------------------------------------
 def plot_metric(df, metric, ylabel, filename, out_dir):
+    """
+    Plot a single training metric over epochs
+    """
     # Check if we have valid data for this metric
     if metric not in df.columns or df[metric].isna().all():
-        print(f"⚠️ No data for {metric}, skipping plot")
+        print(f"No data for {metric}, skipping plot")
         return
     
     plt.figure(figsize=(10, 6))
@@ -54,14 +52,13 @@ def plot_metric(df, metric, ylabel, filename, out_dir):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
-
-# -----------------------------------------------------------
-# Total training time
-# -----------------------------------------------------------
 def plot_total_time(metrics, out_dir, filename="total_training_time"):
+    """
+    Plot total training time as a bar chart
+    """
     total_time = metrics.get("total_training_time") or metrics.get("total_time")
     if total_time is None:
-        print("⚠️ No total training time found.")
+        print("No total training time found.")
         return
 
     plt.figure(figsize=(6, 6))
@@ -71,11 +68,10 @@ def plot_total_time(metrics, out_dir, filename="total_training_time"):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
-
-# -----------------------------------------------------------
-# Confusion matrix (optional)
-# -----------------------------------------------------------
 def plot_confusion_matrix(cm, out_dir, filename="confusion_matrix"):
+    """
+    Plot confusion matrix heatmap
+    """
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
     plt.title("Confusion Matrix")
@@ -84,10 +80,10 @@ def plot_confusion_matrix(cm, out_dir, filename="confusion_matrix"):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
-# -----------------------------------------------------------
-# Butterfly plot for load imbalance visualization
-# -----------------------------------------------------------
 def plot_butterfly(events, out_dir):
+    """
+    Create a butterfly plot to visualize load imbalance
+    """
     if not events:
         return
     
@@ -103,25 +99,26 @@ def plot_butterfly(events, out_dir):
     plt.savefig(os.path.join(out_dir, "butterfly_plot.png"))
     plt.close()
 
-# -----------------------------------------------------------
-# Proper pipeline Gantt chart
-# -----------------------------------------------------------
 def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
+    """
+    Create a Gantt chart for pipeline stages
+    """
     if not events:
-        print("[SKIP] Gantt chart: no pipeline events")
+        print("Gantt chart: no pipeline events")
         return
 
     df = pd.DataFrame(events)
 
     # ensure required columns
     if not {"stage", "start", "end"}.issubset(df.columns):
-        print("[WARN] Gantt chart: events missing stage/start/end")
+        print("Gantt chart: events missing stage/start/end")
         return
 
+    # Compute duration and relative start time
     df["duration"] = df["end"] - df["start"]
     df["start_rel"] = df["start"] - df["start"].min()
 
-    # ---- GANTT CHART ----
+    # Gantt chart
     plt.figure(figsize=(12, 6))
     stages = sorted(df["stage"].unique())
 
@@ -134,6 +131,7 @@ def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
             alpha=0.7
         )
 
+    # Gantt chart formatting
     plt.xlabel("Time (sec, relative)")
     plt.ylabel("Pipeline Stage")
     plt.title("Pipeline Gantt Chart")
@@ -141,7 +139,7 @@ def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     plt.savefig(os.path.join(out_dir, f"{filename}.png"), dpi=300)
     plt.close()
 
-    # ---- AVERAGE LATENCY BAR ----
+    # Stage latency bar plot
     plt.figure(figsize=(8,5))
     sns.barplot(x="stage", y="duration", data=df)
     plt.xlabel("Stage ID")
@@ -164,7 +162,7 @@ def plot_training_metrics_grid(df, out_dir):
             ax.plot(df["epoch"], df[metric], marker='o', linewidth=2, markersize=6)
             ax.set_title(title)
             ax.set_xlabel("Epoch")
-            ax.set_ylabel(title.split(" ")[-1])
+            ax.set_ylabel(title.split("")[-1])
             ax.grid(True, alpha=0.3)
             
             # Add value labels on last point
@@ -283,9 +281,9 @@ def generate_all_plots(file_path, mode):
     with open(file_path, "r") as f:
         metrics = json.load(f)
     
-    if "train_loss" in metrics and len(metrics["train_loss"]) > 0:
+    if "train_loss"in metrics and len(metrics["train_loss"]) > 0:
         generate_training_plots(file_path, mode)
-    elif "accuracy" in metrics:
+    elif "accuracy"in metrics:
         generate_inference_plots(file_path, mode)
     else:
         print(f"[Visualization] Could not determine file type for {file_path}")

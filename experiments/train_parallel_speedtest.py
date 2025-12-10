@@ -1,31 +1,22 @@
-# experiments/train_parallel_speedtest.py
-
 import sys
 import os
 import time
 import json
 import multiprocessing as mp
-from multiprocessing import Process, Queue
-
 import torch
+from multiprocessing import Process, Queue
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))) 
 
 from models.resnet_cifar import ResNet20
 from models.resnet_stages import Stage0, Stage1, Stage2, Stage3, Stage4, Stage5
 from pipeline.stage_worker import stage_worker
 from experiments import visualize_results
 
-
-NUM_STAGES = 6
+NUM_STAGES = 6 
 device = "cpu"
 
-
-# =====================================================================
-# PIPELINE TRAINING — SPEED TEST VERSION (NO ACCURACY EVALUATION)
-# =====================================================================
 def run_pipeline_speedtest(
     microbatch_size=64,
     global_batch_size=512,
@@ -33,13 +24,12 @@ def run_pipeline_speedtest(
     checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
 ):
 
-    assert global_batch_size % microbatch_size == 0
-    M = global_batch_size // microbatch_size
+    assert global_batch_size % microbatch_size == 0 # Ensure divisibility of batches
+    M = global_batch_size // microbatch_size # Number of microbatches
 
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5),
-                             (0.5, 0.5, 0.5)),
+        transforms.Normalize((0.5, 0.5, 0.5),(0.5, 0.5, 0.5)),
     ])
 
     trainset = datasets.CIFAR10("../data", train=True, download=True, transform=transform)
@@ -48,7 +38,7 @@ def run_pipeline_speedtest(
 
     full_model = ResNet20()
     if os.path.exists(checkpoint_path):
-        print(f"[SpeedTest] Loading initial weights from {checkpoint_path}")
+        print(f"Loading initial weights from {checkpoint_path}")
         full_model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
     full_model.train()
 
@@ -62,6 +52,7 @@ def run_pipeline_speedtest(
         Stage5(full_model)
     ]
 
+    # Create queues and stage workers
     queues = [Queue(8) for _ in range(NUM_STAGES + 1)]
     event_queue = Queue()
 
@@ -78,7 +69,7 @@ def run_pipeline_speedtest(
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(full_model.parameters(), lr=0.01, momentum=0.9)
 
-    print("\n[SPEED TEST] Starting GPipe speed-focused training...\n")
+    print("\nStarting GPipe speed-focused training...\n")
 
     total_start = time.time()
 
@@ -90,9 +81,8 @@ def run_pipeline_speedtest(
         "total_time": None
     }
 
-    # ========================================================
-    # TRAINING LOOP — NO EVALUATION FOR MAX SPEED
-    # ========================================================
+    
+    # Training loop
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         epoch_start = time.time()
@@ -110,9 +100,10 @@ def run_pipeline_speedtest(
             for mb_id in range(M):
                 queues[0].put((mb_id, images_mb[mb_id]))
 
-            # Collect outputs
-            received = 0
-            outputs = []
+            received = 0 # number of microbatches received
+            outputs = [] # Collect outputs from the final stage
+
+            # Collect outputs from the final stage
             while received < M:
                 msg = final_queue.get()
                 if msg is None:
@@ -121,6 +112,7 @@ def run_pipeline_speedtest(
                 outputs.append((mb_id, out))
                 received += 1
 
+            # Sort outputs by microbatch ID
             outputs.sort(key=lambda x: x[0])
 
             # Compute grads using full model
@@ -140,16 +132,13 @@ def run_pipeline_speedtest(
         print(f"Epoch {epoch+1} Loss = {epoch_loss:.4f}")
         print(f"Epoch {epoch+1} Time = {epoch_time:.2f} sec")
 
-    # ========================================================
-    # SHUTDOWN
-    # ========================================================
-    print("\n[SPEED TEST] Shutting down pipeline...")
+    print("\nShutting down pipeline...")
 
     # Send termination to workers
     for q in queues[:-1]:
         q.put(None)
 
-    time.sleep(0.5)
+    time.sleep(0.5) 
 
     for p in workers:
         p.terminate()
@@ -160,7 +149,7 @@ def run_pipeline_speedtest(
         metrics["pipeline_events"].append(event_queue.get_nowait())
 
     metrics["total_time"] = time.time() - total_start
-    print(f"\n[SPEED TEST] Total Time = {metrics['total_time']:.2f} sec")
+    print(f"\nTotal Time = {metrics['total_time']:.2f} sec")
 
     # Save metric file
     os.makedirs("../results/metrics", exist_ok=True)
@@ -171,10 +160,6 @@ def run_pipeline_speedtest(
     # Use training plot generator
     visualize_results.generate_training_plots(out_file, mode="parallel")
 
-    print("\n[SPEED TEST] Complete.\n")
-
-
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
-
     run_pipeline_speedtest()
