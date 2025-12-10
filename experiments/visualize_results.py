@@ -99,6 +99,39 @@ def plot_butterfly(events, out_dir):
     plt.savefig(os.path.join(out_dir, "butterfly_plot.png"))
     plt.close()
 
+def compare_sequential_parallel(
+    sequential_json="../results/metrics/sequential_metrics.json",
+    parallel_json="../results/metrics/parallel_speedtest_metrics.json",
+    save_path="compare_training_times.png"
+):
+    """
+    Compare total training times of sequential vs parallel training
+    """
+    seq_time = json.load_total(sequential_json).get("total_training_time")
+    par_time = json.load_total(parallel_json).get("total_training_time")
+
+    labels = ["Sequential", "Pipeline Parallel"]
+    values = [seq_time, par_time]
+
+    plt.figure(figsize=(10, 6))
+    ax = sns.barplot(x=labels, y=values, palette="viridis")
+
+    # Annotate bars with values
+    for i, v in enumerate(values):
+        ax.text(i, v * 1.01, f"{v:.2f} s", ha='center', va='bottom', fontsize=12)
+
+    plt.title("Total Training Time Comparison (Same Scale)", fontsize=16)
+    plt.ylabel("Time (seconds)")
+    plt.xlabel("Training Mode")
+    plt.ylim(0, max(values) * 1.3)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.show()
+
+    print(f"Comparison plot saved to: {save_path}")
+
+
 def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     """
     Create a Gantt chart for pipeline stages
@@ -200,6 +233,7 @@ def generate_training_plots(file_path, mode):
     plot_metric(df, "f1", "F1 Score", "f1_over_epochs", out_dir)
     plot_metric(df, "epoch_time", "Epoch Time", "epoch_time_over_epochs", out_dir)
     
+    compare_sequential_parallel()
     plot_training_metrics_grid(df, out_dir)
     plot_total_time(metrics, out_dir)
     
