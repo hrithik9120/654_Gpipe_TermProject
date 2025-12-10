@@ -149,15 +149,17 @@ def plot_pipeline_gantt(events, out_dir, filename="pipeline_gantt"):
     plt.close()
 
 def plot_training_metrics_grid(df, out_dir):
-    """Create a 2x3 grid of all training metrics"""
+    """
+    Creates a grid of all the training metrics to see them side-by-side.
+    """
     metrics_to_plot = ["loss", "accuracy", "precision", "recall", "f1", "epoch_time"]
     titles = ["Training Loss", "Accuracy", "Precision", "Recall", "F1 Score", "Epoch Time (s)"]
     
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    _, axes = plt.subplots(2, 3, figsize=(18, 12))
     axes = axes.flatten()
     
-    for idx, (metric, title) in enumerate(zip(metrics_to_plot, titles)):
-        ax = axes[idx]
+    for i, (metric, title) in enumerate(zip(metrics_to_plot, titles)):
+        ax = axes[i]
         if metric in df.columns and not df[metric].isna().all():
             ax.plot(df["epoch"], df[metric], marker='o', linewidth=2, markersize=6)
             ax.set_title(title)
@@ -165,7 +167,6 @@ def plot_training_metrics_grid(df, out_dir):
             ax.set_ylabel(title.split("")[-1])
             ax.grid(True, alpha=0.3)
             
-            # Add value labels on last point
             if len(df[metric]) > 0 and not pd.isna(df[metric].iloc[-1]):
                 last_val = df[metric].iloc[-1]
                 ax.annotate(f'{last_val:.4f}', 
@@ -181,18 +182,17 @@ def plot_training_metrics_grid(df, out_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, "training_metrics_grid.png"), dpi=300)
     plt.close()
-# -----------------------------------------------------------
-# Training plots
-# -----------------------------------------------------------
+
 def generate_training_plots(file_path, mode):
-    """Generate plots for training metrics"""
-    print(f"\n[Visualization] Generating training plots from {file_path}")
+    """
+    Generates plots for all training metrics.
+    """
+    print(f"\nGenerating training plots from {file_path}")
     
     df, metrics = load_metrics(file_path)
     out_dir = os.path.join("../results/plots", mode)
     os.makedirs(out_dir, exist_ok=True)
     
-    # 1. Individual metric plots
     plot_metric(df, "loss", "Training Loss", "loss_over_epochs", out_dir)
     plot_metric(df, "accuracy", "Accuracy", "accuracy_over_epochs", out_dir)
     plot_metric(df, "precision", "Precision", "precision_over_epochs", out_dir)
@@ -200,30 +200,26 @@ def generate_training_plots(file_path, mode):
     plot_metric(df, "f1", "F1 Score", "f1_over_epochs", out_dir)
     plot_metric(df, "epoch_time", "Epoch Time", "epoch_time_over_epochs", out_dir)
     
-    # 2. Combined grid plot
     plot_training_metrics_grid(df, out_dir)
-    
-    # 3. Total time plot
     plot_total_time(metrics, out_dir)
     
-    # 4. Pipeline plots if available
     if mode == "parallel":
         events = metrics.get("pipeline_events", [])
         if events and len(events) > 0:
-            print(f"[Visualization] Found {len(events)} pipeline events")
+            print(f"Found {len(events)} pipeline events")
             plot_pipeline_gantt(events, out_dir)
             plot_butterfly(events, out_dir)
         else:
-            print("[Visualization] No pipeline events found")
+            print("No pipeline events found to create charts.")
     
-    print(f"[Visualization] Saved training plots to {out_dir}")
+    print(f"Saved training plots to {out_dir}")
 
-# -----------------------------------------------------------
-# Inference plots
-# -----------------------------------------------------------
+
 def generate_inference_plots(file_path, mode):
-    """Generate plots for inference metrics"""
-    print(f"\n[Visualization] Generating inference plots from {file_path}")
+    """
+    Generates plots for all inference metrics.
+    """
+    print(f"\nGenerating inference plots from {file_path}")
     
     with open(file_path, "r") as f:
         metrics = json.load(f)
@@ -231,18 +227,16 @@ def generate_inference_plots(file_path, mode):
     out_dir = os.path.join("../results/plots", mode)
     os.makedirs(out_dir, exist_ok=True)
     
-    # Inference-specific plots (bar charts for single values)
     metrics_to_plot = ["accuracy", "precision", "recall", "f1"]
-    
+
     plt.figure(figsize=(12, 8))
     
-    # Create subplots
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    _, axes = plt.subplots(2, 2, figsize=(14, 10))
     axes = axes.flatten()
     
-    for idx, metric in enumerate(metrics_to_plot):
+    for i, metric in enumerate(metrics_to_plot):
         if metric in metrics:
-            ax = axes[idx]
+            ax = axes[i]
             value = metrics[metric]
             ax.bar([metric.capitalize()], [value], color='skyblue', edgecolor='black')
             ax.set_title(f"{metric.capitalize()}: {value:.4f}")
@@ -255,7 +249,6 @@ def generate_inference_plots(file_path, mode):
     plt.savefig(os.path.join(out_dir, "inference_metrics.png"), dpi=300)
     plt.close()
     
-    # Also create individual bar charts
     for metric in metrics_to_plot:
         if metric in metrics:
             plt.figure(figsize=(8, 6))
@@ -267,17 +260,15 @@ def generate_inference_plots(file_path, mode):
             plt.savefig(os.path.join(out_dir, f"{metric}_bar.png"), dpi=300)
             plt.close()
     
-    print(f"[Visualization] Saved inference plots to {out_dir}")
+    print(f"Saved inference plots to {out_dir}")
 
 
-# -----------------------------------------------------------
-# MAIN entrypoint for backward compatibility
-# -----------------------------------------------------------
 def generate_all_plots(file_path, mode):
-    """Legacy function for backward compatibility"""
-    print(f"\n[Visualization] Legacy generate_all_plots called for {file_path}")
+    """
+    Main entry point for generating all plots.
+    """
+    print(f"\nGenerating plots for the file path: {file_path}")
     
-    # Check if this is training or inference file
     with open(file_path, "r") as f:
         metrics = json.load(f)
     
@@ -286,4 +277,4 @@ def generate_all_plots(file_path, mode):
     elif "accuracy"in metrics:
         generate_inference_plots(file_path, mode)
     else:
-        print(f"[Visualization] Could not determine file type for {file_path}")
+        print(f"Could not load file: {file_path}")
