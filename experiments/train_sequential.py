@@ -21,7 +21,8 @@ device = "cpu"
 
 def evaluate(model, dataloader):
     """
-    This function evaluates the model on the validation / test set.
+    Evaluates the model after sequential training. Computes accuracy, precision, recall and F1 score. Generates a
+    confusion matrix.
     """
     model.eval()
     all_preds = []
@@ -49,6 +50,10 @@ def evaluate(model, dataloader):
 
 
 def train_sequential(epochs=20, batch_size=128):
+    """
+    Sequential training of the Resnet20 model on the CIFAR10 dataset. Metrics are evaluated after training and stored in
+    a json file.
+    """
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))

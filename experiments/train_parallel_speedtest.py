@@ -23,6 +23,10 @@ def run_pipeline_speedtest(
     num_epochs=20,
     checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
 ):
+    """
+    Parallel training of ResNet20 on CIFAR10 dataset, split into 6 stages. Excludes certain bottlenecks unassociated
+    with training (such as loss calculation, tests after each epoch).
+    """
 
     assert global_batch_size % microbatch_size == 0 # Ensure divisibility of batches
     M = global_batch_size // microbatch_size # Number of microbatches

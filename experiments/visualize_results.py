@@ -9,7 +9,8 @@ sns.set(style="whitegrid")
 
 def load_metrics(file_path):
     """
-    Load metrics from JSON file into DataFrame
+    Load metrics from JSON file and convert it into a pandas DataFrame. Returns the dataframe and metrics to be
+    measured.
     """
     with open(file_path, "r") as f:
         metrics = json.load(f)

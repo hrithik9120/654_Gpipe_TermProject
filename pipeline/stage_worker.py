@@ -2,6 +2,10 @@ import time
 import torch
 
 def stage_worker(stage_module, in_queue, out_queue, stage_id, is_training, event_queue):
+    """
+    A single stage worker in the pipeline. Picks up microbatches from input queue and performs forward pass. Populates
+    output queue after forward pass.
+    """
     torch.set_num_threads(1)
     print(f"[Stage {stage_id}] Worker started")
     
