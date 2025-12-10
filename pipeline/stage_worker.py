@@ -2,6 +2,7 @@ import time
 import torch
 
 def stage_worker(stage_module, in_queue, out_queue, stage_id, is_training, event_queue):
+    torch.set_num_threads(1)
     print(f"[Stage {stage_id}] Worker started")
     
     # Use a reasonable timeout

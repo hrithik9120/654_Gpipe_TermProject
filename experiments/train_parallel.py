@@ -106,14 +106,14 @@ def run_pipeline_inference(
 # PIPELINE TRAINING (GPipe Logic but Training on Full Model)
 # =====================================================================
 def run_pipeline_training(
-    microbatch_size=64,
-    global_batch_size=512,
+    microbatch_size=32,
+    global_batch_size=1024,
     num_epochs=20,
     checkpoint_path="../results/checkpoints/resnet20_epoch_5.pth"
 ):
 
     assert global_batch_size % microbatch_size == 0
-    M = global_batch_size // microbatch_size
+    M = global_batch_size // microbatch_size  
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -171,7 +171,7 @@ def run_pipeline_training(
             "epoch_time": []
         }
 
-
+    EVAL_EVERY = 5
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         epoch_start = time.time()
@@ -202,15 +202,14 @@ def run_pipeline_training(
             outputs.sort(key=lambda x: x[0])
             
             # Compute loss and backward for each microbatch
-            for mb_id, (_, out) in enumerate(outputs):
-                # IMPORTANT: We need to recompute with full model to get gradients
-                # because pipeline workers are in separate processes
-                logits = full_model(images_mb[mb_id])
-                loss = criterion(logits, labels_mb[mb_id])
-                
-                loss = loss / M
-                loss.backward()
-                batch_loss += loss.item() * M
+            logits_full = full_model(images)              # [global_batch_size, 10]
+            logits_mb = logits_full.chunk(M)              # list of M tensors
+
+            for mb_id in range(M):
+                loss_mb = criterion(logits_mb[mb_id], labels_mb[mb_id])
+                loss_mb = loss_mb / M                     # normalize over microbatches
+                loss_mb.backward()
+                batch_loss += loss_mb.item() * M
             
             optimizer.step()
             epoch_loss += batch_loss
@@ -223,12 +222,12 @@ def run_pipeline_training(
         # Save checkpoint
         torch.save(full_model.state_dict(),
                    "../results/checkpoints/gpipe_trained.pth")
-        
+
         # Evaluate on training set for accuracy (optional, can be skipped for speed)
         full_model.eval()
         all_labels = []
         all_preds = []
-        
+
         # Create a small evaluation loader from training data
         eval_size = min(1000, len(trainset))  # Use 1000 samples max
         eval_indices = torch.randperm(len(trainset))[:eval_size]
