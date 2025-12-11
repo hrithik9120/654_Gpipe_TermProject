@@ -1,3 +1,9 @@
+"""
+The below sources were used to understand how to define the base NN to use:
+Citation / References:
+miccaiif. “INS.” GitHub repository, https://github.com/miccaiif/INS
+https://github.com/MadryLab/robustness/blob/master/robustness/cifar_models/resnet.py
+"""
 import torch.nn as nn
 import torch.nn.functional as F
 
